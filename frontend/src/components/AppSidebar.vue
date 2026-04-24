@@ -26,8 +26,8 @@ const avatarText = computed(() => (auth.user?.name?.[0] || 'U').toUpperCase())
     <header class="brand">
       <LumenMark :size="24" />
       <div v-if="!tweaks.sidebarCollapsed" class="brand-text">
-        <span class="brand-name">Lumen AI</span>
-        <span class="brand-sub">workspace · 默认</span>
+        <span class="brand-name">WEKNORA</span>
+        <span class="brand-sub">企业知识助理</span>
       </div>
       <el-button text @click="tweaks.toggleSidebar()" class="collapse-btn">
         <el-icon><Expand v-if="tweaks.sidebarCollapsed" /><Fold v-else /></el-icon>
