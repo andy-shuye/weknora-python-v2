@@ -339,7 +339,7 @@ def stream_chat(session_id: str):
     @stream_with_context
     def generate():
         try:
-            for chunk in upstream_resp.iter_content(chunk_size=1, decode_unicode=True):
+            for chunk in upstream_resp.iter_content(chunk_size=None, decode_unicode=True):
                 if not chunk:
                     continue
                 yield chunk

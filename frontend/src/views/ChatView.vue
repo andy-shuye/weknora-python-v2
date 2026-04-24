@@ -15,7 +15,6 @@ import {
   Reading,
   Refresh,
   Select,
-  VideoPlay,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listKnowledgeBases } from '../api/knowledge'
@@ -494,6 +493,18 @@ async function openReference(cite: UiMessage['citations'][number]) {
   }
 }
 
+function groupedCitations(citations: UiMessage['citations']) {
+  const map = new Map<string, { knowledge_id: string; title: string; filename: string; chunks: UiMessage['citations'] }>()
+  for (const c of citations) {
+    const key = c.knowledge_id || c.key
+    if (!map.has(key)) {
+      map.set(key, { knowledge_id: c.knowledge_id, title: c.knowledge_title, filename: c.knowledge_filename, chunks: [] })
+    }
+    map.get(key)!.chunks.push(c)
+  }
+  return Array.from(map.values())
+}
+
 watch(
   () => route.params.id,
   async (id) => {
@@ -589,30 +600,51 @@ onMounted(async () => {
             </div>
             <div v-if="m.citations.length" class="refs">
               <button class="refs-toggle" type="button" @click="toggleReferences(m)">
-                <span class="refs-title"><el-icon><Link /></el-icon> 引用了 {{ m.citations.length }} 篇文档</span>
+                <span class="refs-title">
+                  <el-icon><Link /></el-icon>
+                  引用了 {{ groupedCitations(m.citations).length }} 篇文档
+                </span>
                 <el-icon class="refs-arrow" :class="{ folded: m.refsCollapsed !== false }">
                   <ArrowDown />
                 </el-icon>
               </button>
               <div v-show="m.refsCollapsed === false" class="ref-list">
-                <div v-for="cite in m.citations" :key="cite.key" class="ref-item">
-                  <button class="ref-head" type="button" @click="openReference(cite)">
-                    <el-icon><Document /></el-icon>
-                    <span class="ref-file">{{ cite.knowledge_filename || cite.knowledge_title }}</span>
+                <div
+                  v-for="group in groupedCitations(m.citations)"
+                  :key="group.knowledge_id"
+                  class="ref-item"
+                >
+                  <button class="ref-head" type="button" @click="openReference(group.chunks[0])">
+                    <el-icon class="doc-icon"><Document /></el-icon>
+                    <span class="ref-file">{{ group.filename || group.title }}</span>
                     <el-icon class="ref-open"><ArrowRight /></el-icon>
                   </button>
-                  <el-popover placement="top-start" :width="460" trigger="hover" popper-class="vector-popover">
-                    <template #reference>
-                      <button class="chunk-chip" type="button" @click="openReference(cite)">
-                        <el-icon><VideoPlay /></el-icon> 向量块预览
-                      </button>
-                    </template>
-                    <div class="chunk-preview">{{ cite.chunk_content || '暂无文本分块内容' }}</div>
-                  </el-popover>
+                  <div class="chunk-chips">
+                    <el-popover
+                      v-for="(chunk, ci) in group.chunks"
+                      :key="chunk.key"
+                      placement="top-start"
+                      :width="480"
+                      trigger="hover"
+                      popper-class="vector-popover"
+                    >
+                      <template #reference>
+                        <button class="chunk-chip" type="button" @click="openReference(chunk)">
+                          块 {{ ci + 1 }}
+                        </button>
+                      </template>
+                      <div class="chunk-preview">{{ chunk.chunk_content || '暂无文本分块内容' }}</div>
+                    </el-popover>
+                  </div>
                 </div>
               </div>
             </div>
-            <div class="assistant-content">{{ m.content || (m.streaming ? '正在思考...' : '') }}</div>
+            <div class="assistant-content">
+              <template v-if="m.content">{{ m.content }}</template>
+              <div v-else-if="m.streaming" class="typing-dots">
+                <span /><span /><span />
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -697,16 +729,19 @@ onMounted(async () => {
 </template>
 
 <style scoped>
+/* ── Layout ─────────────────────────────────────── */
 .chat-page {
   display: grid;
   grid-template-columns: 260px 1fr;
   height: 100vh;
   overflow: hidden;
-  background: #f5f6f8;
+  background: #ffffff;
 }
+
+/* ── Session sidebar ─────────────────────────────── */
 .session-panel {
   border-right: 1px solid #e5e7eb;
-  background: #f3f4f6;
+  background: #f9fafb;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -715,45 +750,53 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 14px 6px;
+  padding: 18px 16px 8px;
 }
 .panel-head h3 {
   margin: 0;
-  font-size: 28px;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
 }
 .panel-actions {
   display: flex;
-  gap: 8px;
-  padding: 0 14px 8px;
+  gap: 6px;
+  padding: 0 12px 8px;
 }
 .panel-date {
-  padding: 6px 14px;
+  padding: 4px 12px 6px;
   color: #9ca3af;
-  font-size: 13px;
+  font-size: 11px;
   font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
 }
 .session-list {
   flex: 1;
   min-height: 0;
-  padding: 0 10px 12px;
+  padding: 0 8px 12px;
 }
 .session-item {
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 8px;
-  height: 36px;
+  gap: 6px;
+  min-height: 34px;
   border-radius: 8px;
   padding: 0 8px;
   cursor: pointer;
-  margin-bottom: 4px;
+  margin-bottom: 2px;
+  transition: background 0.12s;
 }
 .session-item:hover {
-  background: #edf2f7;
+  background: #f0f0f0;
 }
 .session-item.active {
-  background: #dff2e3;
-  color: #0f9f5d;
+  background: #f0fdf4;
+}
+.session-item.active .session-title {
+  color: #059669;
+  font-weight: 500;
 }
 .session-checkbox input {
   width: 14px;
@@ -763,114 +806,144 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 14px;
+  font-size: 13.5px;
+  color: #374151;
+  padding: 5px 0;
 }
 .session-more {
-  height: 24px;
-  width: 24px;
+  height: 22px;
+  width: 22px;
+  opacity: 0;
+  transition: opacity 0.1s;
+}
+.session-item:hover .session-more,
+.session-item.active .session-more {
+  opacity: 1;
 }
 
+/* ── Chat main area ──────────────────────────────── */
 .chat-main {
   display: flex;
   flex-direction: column;
   min-height: 0;
+  background: #ffffff;
 }
 .message-list {
   flex: 1;
   min-height: 0;
   overflow: auto;
-  padding: 22px 26px 18px;
+  padding: 28px 32px 16px;
 }
 .msg {
-  margin: 0 auto 16px;
-  max-width: 860px;
+  margin: 0 auto 28px;
+  max-width: 820px;
 }
 .msg.user {
   display: flex;
   justify-content: flex-end;
 }
+
+/* ── Bubbles ─────────────────────────────────────── */
 .user-bubble {
-  background: #7ddf73;
-  color: #111827;
-  padding: 11px 14px;
-  border-radius: 8px;
-  max-width: 66%;
+  background: #10b981;
+  color: #ffffff;
+  padding: 10px 15px;
+  border-radius: 14px 14px 4px 14px;
+  max-width: 68%;
+  font-size: 14.5px;
+  line-height: 1.65;
+  white-space: pre-wrap;
 }
 .assistant-wrap {
   background: transparent;
-  border: 0;
 }
-.assistant-content {
-  margin-top: 10px;
-  white-space: pre-wrap;
-  line-height: 1.86;
-  font-size: 15px;
-}
+
+/* ── Steps (reasoning mode) ─────────────────────── */
 .steps {
-  border: 1px solid #dfe5e2;
-  background: #fbfcfb;
+  border: 1px solid #e5e7eb;
+  background: #f9fafb;
   border-radius: 10px;
   margin-bottom: 10px;
+  overflow: hidden;
 }
 .steps-title {
   width: 100%;
   border: 0;
   background: transparent;
-  padding: 8px 10px;
+  padding: 10px 12px;
   font-size: 13px;
-  color: #0f9f5d;
+  font-weight: 500;
+  color: #059669;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
+}
+.steps-title:hover {
+  background: #f0fdf4;
 }
 .title-left {
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
+.steps-body {
+  border-top: 1px solid #e5e7eb;
+}
 .step-row {
   display: grid;
-  grid-template-columns: 130px 1fr;
+  grid-template-columns: 110px 1fr;
   gap: 10px;
-  padding: 8px 10px;
-  border-top: 1px dashed #e5e7eb;
+  padding: 8px 12px;
+  border-bottom: 1px solid #f3f4f6;
 }
 .step-type {
-  color: #4b5563;
-  font-size: 12px;
+  color: #6b7280;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding-top: 2px;
 }
 .step-content {
   font-size: 13px;
-  color: #111827;
+  color: #374151;
   white-space: pre-wrap;
+  line-height: 1.55;
 }
 
+/* ── References ──────────────────────────────────── */
 .refs {
-  margin-bottom: 6px;
-  border: 1px solid #dfe5e2;
+  margin-bottom: 10px;
+  border: 1px solid #d1fae5;
   border-radius: 10px;
-  background: #f8fbf9;
+  background: #f9fefb;
+  overflow: hidden;
 }
 .refs-toggle {
   width: 100%;
   border: 0;
   background: transparent;
-  padding: 8px 10px;
+  padding: 10px 14px;
   display: flex;
   justify-content: space-between;
   align-items: center;
   cursor: pointer;
+  transition: background 0.12s;
+}
+.refs-toggle:hover {
+  background: #f0fdf4;
 }
 .refs-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 14px;
-  color: #111827;
+  font-size: 13px;
+  font-weight: 500;
+  color: #059669;
 }
 .refs-arrow {
-  color: #0f9f5d;
+  color: #10b981;
   transition: transform 0.2s ease;
 }
 .refs-arrow.folded {
@@ -878,13 +951,15 @@ onMounted(async () => {
 }
 .ref-list {
   padding: 0 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
 }
 .ref-item {
-  border: 1px solid #dfe5e2;
+  border: 1px solid #e5f3ec;
   background: #ffffff;
   border-radius: 8px;
-  padding: 8px;
-  margin-bottom: 6px;
+  padding: 8px 10px;
 }
 .ref-head {
   width: 100%;
@@ -893,83 +968,145 @@ onMounted(async () => {
   padding: 0;
   display: flex;
   align-items: center;
-  gap: 7px;
-  color: #0f9f5d;
-  font-size: 14px;
+  gap: 6px;
+  font-size: 13px;
   cursor: pointer;
+  text-align: left;
+  color: #374151;
+  transition: color 0.12s;
+}
+.ref-head:hover {
+  color: #059669;
+}
+.doc-icon {
+  color: #10b981;
+  flex-shrink: 0;
 }
 .ref-file {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ref-open {
-  margin-left: auto;
+  color: #9ca3af;
+  flex-shrink: 0;
+}
+.chunk-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
 }
 .chunk-chip {
-  margin-top: 8px;
-  border: 1px solid #c4e8d1;
-  background: #f0fbf4;
-  color: #107a4a;
+  border: 1px solid #a7f3d0;
+  background: #ecfdf5;
+  color: #065f46;
   border-radius: 999px;
-  font-size: 12px;
-  padding: 4px 10px;
+  font-size: 11.5px;
+  padding: 2px 9px;
   cursor: pointer;
   display: inline-flex;
-  gap: 4px;
   align-items: center;
+  transition: background 0.12s;
+  line-height: 1.6;
 }
 .chunk-chip:hover {
-  background: #e5f7ec;
+  background: #d1fae5;
+  border-color: #6ee7b7;
 }
 .chunk-preview {
-  max-height: 220px;
+  max-height: 240px;
   overflow: auto;
   white-space: pre-wrap;
-  line-height: 1.6;
+  line-height: 1.65;
   font-size: 13px;
   color: #374151;
 }
 
+/* ── Assistant content ───────────────────────────── */
+.assistant-content {
+  margin-top: 8px;
+  white-space: pre-wrap;
+  line-height: 1.82;
+  font-size: 14.5px;
+  color: #1a1d26;
+}
+
+/* ── Typing animation ────────────────────────────── */
+.typing-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+  padding: 4px 0;
+}
+.typing-dots span {
+  display: block;
+  width: 7px;
+  height: 7px;
+  background: #10b981;
+  border-radius: 50%;
+  animation: dot-pulse 1.4s ease-in-out infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes dot-pulse {
+  0%, 80%, 100% { transform: scale(0.65); opacity: 0.45; }
+  40%           { transform: scale(1);    opacity: 1;    }
+}
+
+/* ── Composer ────────────────────────────────────── */
 .composer {
-  padding: 0 22px 20px;
+  padding: 0 24px 22px;
+  background: #ffffff;
 }
 .kb-tags {
-  max-width: 860px;
+  max-width: 820px;
   margin: 0 auto 8px;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 .composer-box {
   position: relative;
-  max-width: 860px;
+  max-width: 820px;
   margin: 0 auto;
-  border: 1px solid #d5dbdd;
-  border-radius: 14px;
-  background: #fff;
-  padding: 10px 12px 8px;
-  box-shadow: 0 2px 12px rgba(10, 18, 30, 0.05);
+  border: 1.5px solid #e5e7eb;
+  border-radius: 16px;
+  background: #ffffff;
+  padding: 12px 14px 10px;
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.composer-box:focus-within {
+  border-color: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.08);
 }
 .composer-input {
   width: 100%;
-  min-height: 96px;
+  min-height: 88px;
   border: 0;
   resize: none;
   outline: none;
-  font-size: 15px;
+  font-size: 14.5px;
   line-height: 1.7;
+  color: #1a1d26;
+  background: transparent;
+  font-family: var(--font-sans);
+}
+.composer-input::placeholder {
+  color: #9ca3af;
 }
 .mention-panel {
   position: absolute;
-  left: 12px;
-  bottom: 72px;
-  width: 320px;
-  max-height: 240px;
+  left: 14px;
+  bottom: 66px;
+  width: 300px;
+  max-height: 220px;
   overflow: auto;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  background: #fff;
+  background: #ffffff;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.08);
   z-index: 10;
 }
@@ -977,11 +1114,15 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 9px 10px;
+  padding: 9px 12px;
   cursor: pointer;
+  font-size: 13.5px;
+  color: #374151;
+  transition: background 0.1s;
 }
 .mention-item:hover {
-  background: #f3f9f5;
+  background: #f0fdf4;
+  color: #059669;
 }
 .mention-empty {
   padding: 12px;
@@ -992,38 +1133,40 @@ onMounted(async () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  margin-top: 8px;
 }
 .left-tools,
 .right-tools {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
 }
 
+/* ── Preview dialog ──────────────────────────────── */
 .preview-wrap {
   min-height: 360px;
 }
 .preview-meta {
   display: flex;
   gap: 24px;
-  margin-bottom: 10px;
+  margin-bottom: 12px;
   color: #6b7280;
   font-size: 13px;
 }
 .preview-content {
-  background: #f8fafc;
+  background: #f9fafb;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
-  padding: 12px;
-  line-height: 1.7;
+  padding: 14px;
+  line-height: 1.72;
   white-space: pre-wrap;
-  max-height: 62vh;
+  font-size: 13.5px;
+  max-height: 60vh;
   overflow: auto;
+  color: #374151;
 }
 
 @media (max-width: 1200px) {
-  .chat-page {
-    grid-template-columns: 220px 1fr;
-  }
+  .chat-page { grid-template-columns: 220px 1fr; }
 }
 </style>
