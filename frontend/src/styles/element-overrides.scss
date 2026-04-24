@@ -1,20 +1,20 @@
 /* Align Element Plus with Lumen design tokens */
 :root {
-  --el-color-primary: oklch(0.62 0.09 165);
-  --el-color-primary-light-3: oklch(0.75 0.07 165);
-  --el-color-primary-light-5: oklch(0.85 0.05 165);
-  --el-color-primary-light-7: oklch(0.92 0.03 165);
-  --el-color-primary-light-8: oklch(0.95 0.02 165);
-  --el-color-primary-light-9: oklch(0.97 0.02 165);
-  --el-color-primary-dark-2: oklch(0.50 0.08 165);
+  --el-color-primary: #10b981;
+  --el-color-primary-light-3: #58cea7;
+  --el-color-primary-light-5: #87dcc0;
+  --el-color-primary-light-7: #b7ead9;
+  --el-color-primary-light-8: #d0f1e7;
+  --el-color-primary-light-9: #e8faf5;
+  --el-color-primary-dark-2: #0d9966;
 
   --el-border-radius-base: 8px;
   --el-border-radius-small: 6px;
 
   --el-font-family: 'Manrope', 'Noto Sans SC', system-ui, sans-serif;
 
-  --el-bg-color: #f5f6f8;
-  --el-bg-color-page: #f5f6f8;
+  --el-bg-color: #ffffff;
+  --el-bg-color-page: #ffffff;
   --el-text-color-primary: #1a1d26;
   --el-text-color-regular: #2a2e3a;
   --el-text-color-secondary: #6b7280;
@@ -22,7 +22,7 @@
 
   --el-border-color: #e5e7eb;
   --el-border-color-light: #ecedf0;
-  --el-fill-color-light: #f4f6f8;
+  --el-fill-color-light: #f9fafb;
 }
 
 /* Subtle polish */
