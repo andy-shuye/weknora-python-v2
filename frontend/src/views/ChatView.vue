@@ -9,11 +9,13 @@ import {
   Document,
   Edit,
   FolderOpened,
+  Link,
   MoreFilled,
   Plus,
   Reading,
   Refresh,
   Select,
+  VideoPlay,
 } from '@element-plus/icons-vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { listKnowledgeBases } from '../api/knowledge'
@@ -50,6 +52,7 @@ type UiMessage = {
   steps: Array<{ type: string; content: string }>
   streaming?: boolean
   refsCollapsed?: boolean
+  stepsCollapsed?: boolean
 }
 
 const route = useRoute()
@@ -119,35 +122,58 @@ function normalizeMessage(item: ChatMessage): UiMessage {
     })),
     streaming: false,
     refsCollapsed: true,
+    stepsCollapsed: false,
   }
 }
 
 function extractReferences(raw: any): any[] {
   if (Array.isArray(raw?.knowledge_references)) return raw.knowledge_references
   if (Array.isArray(raw?.data?.references)) return raw.data.references
+  if (Array.isArray(raw?.references)) return raw.references
   return []
 }
 
 function mergeCitations(current: UiMessage['citations'], refs: any[]): UiMessage['citations'] {
   const next = [...current]
   for (const r of refs) {
-    const knowledgeId = String(r.knowledge_id || '')
-    const key = String(r.id || `${knowledgeId}-${r.chunk_index || 0}`)
+    const knowledgeId = String(r.knowledge_id || r.knowledge?.id || '')
+    const chunkContent = String(r.content || r.chunk_content || r.chunk?.content || '')
+    const key = String(r.id || `${knowledgeId}-${r.chunk_index || r.chunk?.index || 0}-${chunkContent.slice(0, 16)}`)
     if (!knowledgeId || next.some((c) => c.key === key)) continue
     next.push({
       key,
       knowledge_id: knowledgeId,
-      knowledge_title: String(r.knowledge_title || r.knowledge_filename || '引用文档'),
-      knowledge_filename: String(r.knowledge_filename || r.knowledge_title || ''),
-      chunk_content: String(r.content || ''),
+      knowledge_title: String(r.knowledge_title || r.knowledge_filename || r.knowledge?.name || '引用文档'),
+      knowledge_filename: String(r.knowledge_filename || r.knowledge_title || r.knowledge?.name || ''),
+      chunk_content: chunkContent,
       score: Number(r.score || 0),
     })
   }
   return next
 }
 
+function parseStreamPayload(raw: unknown, eventType: string): { responseType: string; content: string; payload: any } {
+  if (raw && typeof raw === 'object') {
+    const payload = raw as any
+    const responseType = String(payload.response_type || payload.type || eventType || '').toLowerCase()
+    const content = String(payload.content || payload.answer || payload.text || payload.delta || payload.data?.content || '')
+    return { responseType, content, payload }
+  }
+
+  const text = String(raw || '')
+  return {
+    responseType: String(eventType || 'answer').toLowerCase(),
+    content: text,
+    payload: { content: text },
+  }
+}
+
 function toggleReferences(message: UiMessage) {
   message.refsCollapsed = !message.refsCollapsed
+}
+
+function toggleSteps(message: UiMessage) {
+  message.stepsCollapsed = !message.stepsCollapsed
 }
 
 async function loadChatOptions() {
@@ -345,7 +371,7 @@ function pickMentionKb(kb: { name: string; weknora_kb_id: string }) {
 async function scrollToBottom() {
   await nextTick()
   if (!listRef.value) return
-  listRef.value.scrollTop = listRef.value.scrollHeight + 200
+  listRef.value.scrollTop = listRef.value.scrollHeight + 240
 }
 
 async function sendMessage() {
@@ -377,6 +403,7 @@ async function sendMessage() {
     steps: [],
     streaming: true,
     refsCollapsed: true,
+    stepsCollapsed: false,
   }
 
   messages.value.push(userMsg)
@@ -399,22 +426,21 @@ async function sendMessage() {
       knowledgeBaseIds: selectedKbIds.value,
       mentionedItems: selectedMentioned,
       onEvent: async (eventType, raw) => {
-        if (!raw || typeof raw !== 'object') return
-        const responseType = String(raw.response_type || eventType || '').toLowerCase()
-        const content = String(raw.content || '')
+        const { responseType, content, payload } = parseStreamPayload(raw, eventType)
 
-        if (responseType === 'references') {
-          const refs = extractReferences(raw)
-          if (refs.length) {
-            asstMsg.citations = mergeCitations(asstMsg.citations, refs)
-          }
-        } else if (responseType === 'answer') {
-          if (content) {
-            asstMsg.content += content
-          }
-          if (raw.done === true) {
-            asstMsg.streaming = false
-          }
+        if (responseType === 'references' || responseType === 'citation') {
+          const refs = extractReferences(payload)
+          if (refs.length) asstMsg.citations = mergeCitations(asstMsg.citations, refs)
+        } else if (
+          responseType === 'answer' ||
+          responseType === 'delta' ||
+          responseType === 'message' ||
+          responseType === 'text'
+        ) {
+          if (content) asstMsg.content += content
+          const refs = extractReferences(payload)
+          if (refs.length) asstMsg.citations = mergeCitations(asstMsg.citations, refs)
+          if (payload?.done === true || payload?.is_completed === true) asstMsg.streaming = false
         } else if (
           responseType === 'thinking' ||
           responseType === 'tool_call' ||
@@ -422,16 +448,17 @@ async function sendMessage() {
           responseType === 'reflection' ||
           responseType === 'agent_query'
         ) {
-          asstMsg.steps.push({ type: responseType, content: content || JSON.stringify(raw.data || {}) })
+          asstMsg.steps.push({ type: responseType, content: content || JSON.stringify(payload.data || {}) })
         } else if (responseType === 'session_title' && content && activeSessionId.value) {
           await updateChatSession(activeSessionId.value, { title: content })
           await loadSessions()
         } else if (responseType === 'error') {
           asstMsg.steps.push({ type: 'error', content: content || '推理出现错误' })
           asstMsg.streaming = false
-        } else if (responseType === 'complete' || responseType === 'stop') {
+        } else if (responseType === 'complete' || responseType === 'stop' || responseType === 'done') {
           asstMsg.streaming = false
         }
+
         await scrollToBottom()
       },
     })
@@ -439,9 +466,7 @@ async function sendMessage() {
     asstMsg.streaming = false
   } catch (e: any) {
     asstMsg.streaming = false
-    if (!asstMsg.content) {
-      asstMsg.content = `请求失败：${e.message || 'unknown error'}`
-    }
+    if (!asstMsg.content) asstMsg.content = `请求失败：${e.message || 'unknown error'}`
     ElMessage.error(e.message || '发送失败')
   } finally {
     sending.value = false
@@ -550,16 +575,21 @@ onMounted(async () => {
         <div v-for="m in messages" :key="m.id" class="msg" :class="m.role">
           <div v-if="m.role === 'user'" class="bubble user-bubble">{{ m.content }}</div>
           <div v-else class="assistant-wrap">
-            <div v-if="m.steps.length" class="steps">
-              <div class="steps-title"><el-icon><Reading /></el-icon> 完成 {{ m.steps.length }} 个步骤</div>
-              <div v-for="(step, idx) in m.steps" :key="`${m.id}-step-${idx}`" class="step-row">
-                <span class="step-type">{{ step.type }}</span>
-                <span class="step-content">{{ step.content }}</span>
+            <div v-if="m.steps.length && mode === 'reasoning'" class="steps">
+              <button class="steps-title" type="button" @click="toggleSteps(m)">
+                <span class="title-left"><el-icon><Reading /></el-icon> 完成 {{ m.steps.length }} 个步骤</span>
+                <el-icon class="refs-arrow" :class="{ folded: m.stepsCollapsed !== false }"><ArrowDown /></el-icon>
+              </button>
+              <div v-show="m.stepsCollapsed === false" class="steps-body">
+                <div v-for="(step, idx) in m.steps" :key="`${m.id}-step-${idx}`" class="step-row">
+                  <span class="step-type">{{ step.type }}</span>
+                  <span class="step-content">{{ step.content }}</span>
+                </div>
               </div>
             </div>
             <div v-if="m.citations.length" class="refs">
               <button class="refs-toggle" type="button" @click="toggleReferences(m)">
-                <span class="refs-title">引用来源 {{ m.citations.length }}</span>
+                <span class="refs-title"><el-icon><Link /></el-icon> 引用了 {{ m.citations.length }} 篇文档</span>
                 <el-icon class="refs-arrow" :class="{ folded: m.refsCollapsed !== false }">
                   <ArrowDown />
                 </el-icon>
@@ -571,15 +601,10 @@ onMounted(async () => {
                     <span class="ref-file">{{ cite.knowledge_filename || cite.knowledge_title }}</span>
                     <el-icon class="ref-open"><ArrowRight /></el-icon>
                   </button>
-                  <el-popover
-                    placement="top-start"
-                    :width="460"
-                    trigger="hover"
-                    popper-class="vector-popover"
-                  >
+                  <el-popover placement="top-start" :width="460" trigger="hover" popper-class="vector-popover">
                     <template #reference>
                       <button class="chunk-chip" type="button" @click="openReference(cite)">
-                        向量块预览
+                        <el-icon><VideoPlay /></el-icon> 向量块预览
                       </button>
                     </template>
                     <div class="chunk-preview">{{ cite.chunk_content || '暂无文本分块内容' }}</div>
@@ -610,7 +635,7 @@ onMounted(async () => {
           <textarea
             v-model="inputText"
             class="composer-input"
-            placeholder="直接向模型提问，输入 @ 可选择知识库"
+            placeholder="输入问题，将基于上方选择的知识库/文件回答"
             :disabled="sending"
             @input="handleInputForMention"
             @keydown.enter.exact.prevent="sendMessage"
@@ -677,10 +702,10 @@ onMounted(async () => {
   grid-template-columns: 260px 1fr;
   height: 100vh;
   overflow: hidden;
-  background: #f5f7f8;
+  background: #f5f6f8;
 }
 .session-panel {
-  border-right: 1px solid #e6eaef;
+  border-right: 1px solid #e5e7eb;
   background: #f3f4f6;
   display: flex;
   flex-direction: column;
@@ -727,7 +752,7 @@ onMounted(async () => {
   background: #edf2f7;
 }
 .session-item.active {
-  background: #daf4df;
+  background: #dff2e3;
   color: #0f9f5d;
 }
 .session-checkbox input {
@@ -765,44 +790,50 @@ onMounted(async () => {
   justify-content: flex-end;
 }
 .user-bubble {
-  background: #7edc76;
+  background: #7ddf73;
   color: #111827;
-  padding: 10px 14px;
+  padding: 11px 14px;
   border-radius: 8px;
-  max-width: 60%;
+  max-width: 66%;
 }
 .assistant-wrap {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 10px;
-  padding: 12px;
+  background: transparent;
+  border: 0;
 }
 .assistant-content {
-  margin-top: 4px;
+  margin-top: 10px;
   white-space: pre-wrap;
-  line-height: 1.8;
+  line-height: 1.86;
   font-size: 15px;
 }
 .steps {
-  border: 1px solid #d6f1dd;
-  background: #f8fdfa;
-  border-radius: 8px;
-  margin-bottom: 8px;
+  border: 1px solid #dfe5e2;
+  background: #fbfcfb;
+  border-radius: 10px;
+  margin-bottom: 10px;
 }
 .steps-title {
+  width: 100%;
+  border: 0;
+  background: transparent;
   padding: 8px 10px;
   font-size: 13px;
   color: #0f9f5d;
-  border-bottom: 1px solid #e6f4ea;
   display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+.title-left {
+  display: inline-flex;
   align-items: center;
   gap: 6px;
 }
 .step-row {
   display: grid;
-  grid-template-columns: 120px 1fr;
+  grid-template-columns: 130px 1fr;
   gap: 10px;
-  padding: 7px 10px;
+  padding: 8px 10px;
   border-top: 1px dashed #e5e7eb;
 }
 .step-type {
@@ -816,10 +847,10 @@ onMounted(async () => {
 }
 
 .refs {
-  margin-bottom: 10px;
-  border: 1px solid #d9e8df;
+  margin-bottom: 6px;
+  border: 1px solid #dfe5e2;
   border-radius: 10px;
-  background: #f7fcf9;
+  background: #f8fbf9;
 }
 .refs-toggle {
   width: 100%;
@@ -832,9 +863,11 @@ onMounted(async () => {
   cursor: pointer;
 }
 .refs-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-size: 14px;
   color: #111827;
-  font-weight: 600;
 }
 .refs-arrow {
   color: #0f9f5d;
@@ -847,7 +880,7 @@ onMounted(async () => {
   padding: 0 10px 10px;
 }
 .ref-item {
-  border: 1px solid #dbece2;
+  border: 1px solid #dfe5e2;
   background: #ffffff;
   border-radius: 8px;
   padding: 8px;
@@ -861,7 +894,7 @@ onMounted(async () => {
   display: flex;
   align-items: center;
   gap: 7px;
-  color: #0e9b57;
+  color: #0f9f5d;
   font-size: 14px;
   cursor: pointer;
 }
@@ -875,16 +908,19 @@ onMounted(async () => {
 }
 .chunk-chip {
   margin-top: 8px;
-  border: 1px solid #bfe5cf;
+  border: 1px solid #c4e8d1;
   background: #f0fbf4;
   color: #107a4a;
   border-radius: 999px;
   font-size: 12px;
-  padding: 3px 10px;
+  padding: 4px 10px;
   cursor: pointer;
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
 }
 .chunk-chip:hover {
-  background: #e3f7ea;
+  background: #e5f7ec;
 }
 .chunk-preview {
   max-height: 220px;
@@ -909,10 +945,11 @@ onMounted(async () => {
   position: relative;
   max-width: 860px;
   margin: 0 auto;
-  border: 1px solid #e5e7eb;
+  border: 1px solid #d5dbdd;
   border-radius: 14px;
   background: #fff;
   padding: 10px 12px 8px;
+  box-shadow: 0 2px 12px rgba(10, 18, 30, 0.05);
 }
 .composer-input {
   width: 100%;

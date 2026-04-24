@@ -339,13 +339,10 @@ def stream_chat(session_id: str):
     @stream_with_context
     def generate():
         try:
-            for line in upstream_resp.iter_lines(decode_unicode=True):
-                if line is None:
+            for chunk in upstream_resp.iter_content(chunk_size=1, decode_unicode=True):
+                if not chunk:
                     continue
-                if line == '':
-                    yield '\n'
-                    continue
-                yield f'{line}\n'
+                yield chunk
         finally:
             upstream_resp.close()
 
@@ -356,6 +353,7 @@ def stream_chat(session_id: str):
             'Cache-Control': 'no-cache',
             'X-Accel-Buffering': 'no',
             'Connection': 'keep-alive',
+            'Transfer-Encoding': 'chunked',
         },
     )
 
